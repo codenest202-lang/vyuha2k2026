@@ -2,9 +2,13 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import QRCode from 'qrcode';
 import { Booking } from '../models/Booking.js';
+import { User } from '../models/User.js';
 import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { z } from 'zod';
+import { createRazorpayOrder, verifyRazorpaySignature } from '../services/payment.js';
+import { sendBookingConfirmationEmail } from '../services/email.js';
+import { notifyNewBooking } from '../services/telegram.js';
 
 const router = Router();
 
@@ -19,17 +23,17 @@ const participantSchema = z.object({
   department: z.string().min(1, 'Department is required'),
 });
 
-const bookingSchema = z.object({
+const bookingCreateSchema = z.object({
   participants: z.array(participantSchema).min(1, 'At least one participant required'),
 });
 
 /**
  * POST /api/bookings/create
- * Create a new booking (initiates payment)
+ * Create a new booking and Razorpay order
  */
 router.post('/create', authenticate, async (req, res, next) => {
   try {
-    const parsed = bookingSchema.safeParse(req.body);
+    const parsed = bookingCreateSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new AppError(parsed.error.errors[0].message, 400);
     }
@@ -51,10 +55,14 @@ router.post('/create', authenticate, async (req, res, next) => {
       color: { dark: '#D4A843', light: '#0A0A0A' },
     });
 
+    // Create Razorpay order
+    const razorpayOrder = await createRazorpayOrder(totalAmount, transactionId);
+
     // Create booking record
     const booking = await Booking.create({
       userId: req.user!.userId,
       transactionId,
+      razorpayOrderId: razorpayOrder.id,
       participants,
       totalAmount,
       pricePerPerson: PRICE_PER_PERSON,
@@ -63,13 +71,6 @@ router.post('/create', authenticate, async (req, res, next) => {
       paymentStatus: 'pending',
     });
 
-    // TODO: Create Razorpay order
-    // const razorpayOrder = await razorpay.orders.create({
-    //   amount: totalAmount * 100, // in paise
-    //   currency: 'INR',
-    //   receipt: transactionId,
-    // });
-
     res.status(201).json({
       success: true,
       data: {
@@ -77,7 +78,7 @@ router.post('/create', authenticate, async (req, res, next) => {
         transactionId,
         totalAmount,
         participantCount: participants.length,
-        // razorpayOrderId: razorpayOrder.id,
+        razorpayOrderId: razorpayOrder.id,
       },
     });
   } catch (error) {
@@ -87,7 +88,7 @@ router.post('/create', authenticate, async (req, res, next) => {
 
 /**
  * POST /api/bookings/verify-payment
- * Verify Razorpay payment and confirm booking
+ * Verify Razorpay payment signature and confirm booking
  */
 router.post('/verify-payment', authenticate, async (req, res, next) => {
   try {
@@ -106,20 +107,48 @@ router.post('/verify-payment', authenticate, async (req, res, next) => {
       throw new AppError('Unauthorized.', 403);
     }
 
-    // TODO: Verify Razorpay signature
-    // const expectedSignature = crypto
-    //   .createHmac('sha256', config.razorpay.keySecret)
-    //   .update(`${razorpayOrderId}|${razorpayPaymentId}`)
-    //   .digest('hex');
+    // Verify Razorpay signature
+    const isValid = verifyRazorpaySignature(
+      razorpayOrderId || booking.razorpayOrderId || '',
+      razorpayPaymentId || '',
+      razorpaySignature || ''
+    );
+
+    if (!isValid) {
+      booking.status = 'failed';
+      await booking.save();
+      throw new AppError('Payment verification failed.', 400);
+    }
 
     // Update booking
     booking.status = 'confirmed';
     booking.paymentStatus = 'paid';
     booking.razorpayPaymentId = razorpayPaymentId;
-    booking.razorpayOrderId = razorpayOrderId;
+    if (razorpayOrderId) booking.razorpayOrderId = razorpayOrderId;
     await booking.save();
 
-    // TODO: Send confirmation email with PDF ticket
+    // Get user for email
+    const user = await User.findById(req.user!.userId);
+
+    // Send confirmation email (non-blocking)
+    if (user) {
+      sendBookingConfirmationEmail(
+        user.email,
+        user.name,
+        booking.transactionId,
+        booking.totalAmount,
+        booking.participants.length,
+        booking.qrCode
+      ).catch((err) => console.error('[Email] Failed:', err));
+
+      // Notify on Telegram (non-blocking)
+      notifyNewBooking(
+        booking.transactionId,
+        booking.participants.length,
+        booking.totalAmount,
+        user.name
+      ).catch((err) => console.error('[Telegram] Failed:', err));
+    }
 
     res.json({
       success: true,

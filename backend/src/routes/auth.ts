@@ -6,6 +6,7 @@ import { OTP } from '../models/OTP.js';
 import { config } from '../config/env.js';
 import { authenticate } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { sendOtpEmail } from '../services/email.js';
 
 const router = Router();
 
@@ -32,18 +33,21 @@ router.post('/email/send-otp', async (req, res, next) => {
       { upsert: true, new: true }
     );
 
-    // TODO: Send email via SendGrid/Mailgun
-    // For now, log the OTP in development
+    // Ensure user exists
+    const userName = name || 'User';
+    await User.findOneAndUpdate(
+      { email: email.toLowerCase() },
+      { $setOnInsert: { email: email.toLowerCase(), name: userName, role: 'user' } },
+      { upsert: true, new: true }
+    );
+
+    // Send OTP via email
+    await sendOtpEmail(email.toLowerCase(), otp, userName);
+
+    // Also log in dev mode
     if (!config.isProduction) {
       console.log(`[Auth] OTP for ${email}: ${otp}`);
     }
-
-    // Ensure user exists
-    await User.findOneAndUpdate(
-      { email: email.toLowerCase() },
-      { $setOnInsert: { email: email.toLowerCase(), name: name || 'User', role: 'user' } },
-      { upsert: true, new: true }
-    );
 
     res.json({
       success: true,
@@ -175,6 +179,39 @@ router.post('/google', async (req, res, next) => {
 router.get('/me', authenticate, async (req, res, next) => {
   try {
     const user = await User.findById(req.user!.userId).select('-__v');
+    if (!user) {
+      throw new AppError('User not found.', 404);
+    }
+
+    res.json({
+      success: true,
+      data: { user },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PATCH /api/auth/profile
+ * Update user profile
+ */
+router.patch('/profile', authenticate, async (req, res, next) => {
+  try {
+    const { name, phone, college, year, department } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      req.user!.userId,
+      {
+        ...(name && { name }),
+        ...(phone && { phone }),
+        ...(college && { college }),
+        ...(year && { year }),
+        ...(department && { department }),
+      },
+      { new: true }
+    ).select('-__v');
+
     if (!user) {
       throw new AppError('User not found.', 404);
     }
