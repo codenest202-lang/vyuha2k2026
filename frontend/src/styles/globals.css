@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Custom scrollbar - dark theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #0A0A0A;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #404040;
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #525252;
+  }
+
+  /* Light mode scrollbar */
+  .light ::-webkit-scrollbar-track {
+    background: #FAFAFA;
+  }
+
+  .light ::-webkit-scrollbar-thumb {
+    background: #D4D4D4;
+  }
+
+  /* Selection color - gold accent */
+  ::selection {
+    background: rgba(212, 168, 67, 0.3);
+    color: #FFD700;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-8 py-3 bg-vyuha-gold text-vyuha-black font-semibold rounded-lg
+           transition-all duration-300 hover:shadow-lg hover:shadow-vyuha-gold/20
+           active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply px-8 py-3 border border-vyuha-gold/40 text-vyuha-gold font-semibold rounded-lg
+           transition-all duration-300 hover:bg-vyuha-gold/10 hover:border-vyuha-gold
+           active:scale-95;
+  }
+
+  .btn-ghost {
+    @apply px-6 py-2 text-vyuha-gray-400 font-medium rounded-lg
+           transition-all duration-300 hover:text-white hover:bg-white/5;
+  }
+
+  .card-glass {
+    @apply bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl
+           transition-all duration-500;
+  }
+
+  .card-glass:hover {
+    @apply bg-white/8 border-vyuha-gold/20 shadow-xl shadow-vyuha-gold/5;
+  }
+
+  .text-gradient-gold {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-vyuha-gold-light via-vyuha-gold to-vyuha-gold-dark;
+  }
+
+  .glow-gold {
+    box-shadow: 0 0 20px rgba(212, 168, 67, 0.15),
+                0 0 40px rgba(212, 168, 67, 0.05);
+  }
+
+  .section-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
